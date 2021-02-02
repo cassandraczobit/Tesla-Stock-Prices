@@ -1,0 +1,173 @@
+---
+title: "Forecasting Tesla Stock Prices"
+author: "Cassandra Czobit"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This document explores Tesla's stock prices from its initial public offering on June 29, 2010, to March 17, 2017. Tesla’s share prices have experienced staggering increases over several years and machine learning algorithms could unveil trends of seasonality or autocorrelated variables. Predictive analysis, and within it, machine learning, can greatly influence investors from the uncertainty of the market. This time-series data aims to address questions in forecasting trends of Tesla’s future stock prices. The future predictions will be compared to present day stock value to determine the accuracy of the algorithms, in addition to a review of the factors that have affected the stock prices to date (i.e. supply and demand, economy, stock splits, etc.).   
+
+### Importing Libraries and Data
+
+```{r, warning=FALSE, message=FALSE}
+library(dplyr)
+library(lubridate)
+library(summarytools)
+library(corrplot)
+library(tseries)
+library(ggplot2)
+library(plotly)
+library(formattable)
+library(dygraphs)
+library(hrbrthemes)
+
+tesla <- read.csv("./Tesla.csv")
+
+```
+
+### Data Preparation and Exploration 
+
+The data analysis stage first consists of cleaning, and inspecting the data for inconsistencies. Following these steps, the data may undergo transformations and modelling as required. As part of the data preparation stage, the following steps will be taken:
+
+* Review importation of attribute types
+* Determine if there are missing values
+* Review measures of central tendency
+* Correlation between attributes
+* Treatment of outliers 
+* Visualizations
+* Data cleaning 
+
+```{r}
+head(tesla)
+str(tesla)
+tesla$Date <- as.Date(tesla$Date, format = "%m/%d/%Y") 
+class(tesla$Date)
+
+```
+
+The 'Date' attribute was changed to represent a date type variable.
+
+```{r}
+sum(is.na(tesla))
+
+```
+
+There are no missing values.
+
+Next, a correlation plot will determine whether the attributes are correlated and to what degree. 
+
+```{r}
+x <- cor(tesla[2:7])
+x
+corrplot(x, type = "upper", order = "hclust")
+
+```
+
+To understand the attributes further, the measures of central tendency will be reviewed.
+
+<br>
+**Descriptive Statistics of Tesla Stock**
+
+```{r echo = FALSE, results = 'asis', warnings = FALSE, message = FALSE}
+
+i1 <- descr(tesla, stats = c("mean", "med", "sd", "max", "min"), transpose = TRUE, headings = FALSE, order = "p")  
+i1
+
+```
+
+<br>
+These values allow us to see the range of values that are present in the Tesla stocks over time. Notably, the range of the minimum and maximum stock values is quite large, likely due to trends over several years.
+Since this is a time-series dataset from the intial public offering, it is unlikely that outliers are present, since the value of the stock has changed drastically over several years. For the purposes of this investigation, the closed stock price (i.e. the value of the stock at the end of the day) will be used. The table below displays the trends of the closed stock prices from 2010-2017. 
+
+<br>
+**Closed Tesla Stock Price Statistics**
+
+```{r echo = FALSE, results = 'asis', warnings = FALSE}
+i2 <- tesla %>% 
+  select(c(Date,Close)) %>% 
+  mutate(Year = year(Date)) %>% 
+  filter(year(Date)==2010 | year(Date)==2011 | year(Date)==2012 | year(Date)==2013 | year(Date)==2014 | year(Date)==2015 | year(Date)==2016 | year(Date)==2017) %>% 
+  group_by(Year) %>% 
+  summarise(Min = min(Close), Max = max(Close), Average = round(mean(Close),2), `% Change per Fiscal Year` = round(((Close[which.max(Date)] - Close[which.min(Date)])/Close[which.min(Date)]*100),2))
+  
+customRed = "#ff7f7f"
+  
+prcntChange_formatter <- 
+  formatter("span", 
+            style = x ~ formattable::style(color = ifelse(x > 0, "green", ifelse(x < 0, "red", "black"))), x ~ icontext(ifelse(x>0, "arrow-up", "arrow-down"), x))
+
+
+formattable(i2, align =c("l","c","c","c", "r"), list(`% Change per Fiscal Year` = prcntChange_formatter, Average = color_bar(customRed)))
+
+```
+
+<br>
+Next, visualizations will be used to observe trends in the data. In order to ensure that the most accurate forecasts are obtained from the analysis, there are several aspects to consider when working with a time series dataset. The following data exploration will determine:
+
+* Is there a pattern of seasonality (periodic fluctuations)?
+* Is there evidence of autocorrelation?
+* Is the time series stationary? 
+
+The first two visualizations will display the closing price of Tesla stock per day. 
+
+<br>
+
+```{r echo = FALSE}
+stocks <- tesla %>%
+  ggplot(aes(x=Date, y=Close)) +
+  geom_area(fill="#69b3a2", alpha=0.5) +
+  geom_line(color="#69b3a2") +
+  ylab("Stock Price ($USD)") +
+  xlab("Dates") +
+  ggtitle("Closing Price of Tesla Stock") +
+  scale_x_date(date_labels = "%Y", date_breaks = "1 years")
+
+ggplotly(stocks)
+
+```
+
+<br>
+**Histogram of Closing Price**
+
+```{r echo = FALSE}
+hist(tesla$Close, col = "#69b3a2", main = " ", xlab = "Closing Price")
+
+```
+
+Now that the closing stock prices have been visualized, as shown above, it is important to determine if autocorrelation is present within the data. Autocorrelation refers to the degree of similarity that is present between the data and a lagged version of the past data. In other words, this assessment determine if the data is dependent on its past.
+
+<br>
+
+```{r}
+
+
+```
+
+Seasonality
+
+```{r}
+
+
+
+```
+
+Stationary
+
+```{r}
+
+
+```
+
+### Feature Selection
+
+Although there are 7 attributes in the dataset, the focus will be on the attributes "Date" and "Close", since the goal of this project is to forecast the closing stock price of a  univariate time series dataset.
+
+### Modelling 
+
+**Naive Forecasting**
+
+**ARIMA model** 
+
