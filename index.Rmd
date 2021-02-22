@@ -8,11 +8,17 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-This document explores Tesla's stock prices from its initial public offering on June 29, 2010, to March 17, 2017. Tesla’s share prices have experienced staggering increases over several years and machine learning algorithms could unveil trends of seasonality or autocorrelated variables. Predictive analysis, and within it, machine learning, can greatly influence investors from the uncertainty of the market. This time-series data aims to address questions in forecasting trends of Tesla’s future stock prices. The future predictions will be compared to present day stock value to determine the accuracy of the algorithms, in addition to a review of the factors that have affected the stock prices to date (i.e. supply and demand, economy, stock splits, etc.).   
+This document explores Tesla's stock prices from its initial public offering on June 29, 2010, to March 17, 2017. Tesla’s share prices have experienced staggering increases over several years and machine learning algorithms could unveil trends of seasonality or autocorrelated variables. Predictive analysis, and within it, machine learning, can greatly influence investors from the uncertainty of the market. This time-series data aims to address the ability of machine learning models to use the time-series data to predict Tesla’s future market behavior. This investigation will utilize machine learning techniques on the historical prices to evaluate the direction of market movement, as well as forecast the value of the stock in the future. The research questions are as follows:
+
+1.	How accurate is the ARIMA model with the addition of technical indicators from historical data?
+2.	Which attribute(s) best predicts the direction of the stock market movement?  
+
+The future predictions will be compared to present day stock value to determine the accuracy of the algorithms, in addition to a review of the factors that have affected the stock prices to date (i.e. supply and demand, economy, stock splits, etc.).   
 
 ### Importing Libraries and Data
 
 ```{r, warning=FALSE, message=FALSE}
+library(quantmod) 
 library(dplyr)
 library(lubridate)
 library(summarytools)
@@ -24,7 +30,23 @@ library(formattable)
 library(dygraphs)
 library(hrbrthemes)
 
-tesla <- read.csv("./Tesla.csv")
+stock_list <- "TSLA"
+start_date <- 2010-06-29
+end_date <- Sys.Date()
+tesla <- NULL
+
+for (i in seq(length(stock_list))){
+  getSymbols(stock_list, verbose = FALSE, src = "yahoo", 
+             from=start_date,to=end_date)
+  temp_df = as.data.frame(get(stock_list))
+  temp_df$Date = row.names(temp_df)
+  row.names(temp_df) = NULL
+  colnames(temp_df) = c("Open", "High", "Low", "Close", 
+                        "Volume", "Adjusted", "Date")
+  temp_df = temp_df[c("Date", "Open", "High", 
+                      "Low", "Close", "Volume", "Adjusted")]
+  tesla = temp_df
+}
 
 ```
 
@@ -43,7 +65,7 @@ The data analysis stage first consists of cleaning, and inspecting the data for 
 ```{r}
 head(tesla)
 str(tesla)
-tesla$Date <- as.Date(tesla$Date, format = "%m/%d/%Y") 
+tesla$Date <- as.Date(tesla$Date) 
 class(tesla$Date)
 
 ```
@@ -56,6 +78,16 @@ sum(is.na(tesla))
 ```
 
 There are no missing values.
+In considering the COVID-19 pandemic, the Tesla dataset will be filtered to include the years from 2010-2019. Due to the uncertainty surrounding the economy in 2020, I believe there will be white noise present in the 2020 data.
+
+```{r}
+tesla <- tesla %>% 
+  mutate(Year = year(Date)) %>% 
+  group_by(Year) %>% 
+  filter(Year != 2020 & Year != 2021) 
+
+tesla <- tesla[1:7]
+```
 
 Next, a correlation plot will determine whether the attributes are correlated and to what degree. 
 
@@ -73,25 +105,33 @@ To understand the attributes further, the measures of central tendency will be r
 
 ```{r echo = FALSE, results = 'asis', warnings = FALSE, message = FALSE}
 
-i1 <- descr(tesla, stats = c("mean", "med", "sd", "max", "min"), transpose = TRUE, headings = FALSE, order = "p")  
+tesla$Volume <- (tesla$Volume)/1000000
+colnames(tesla) = c("Date", "Open", "High", 
+                      "Low", "Close", "Volume (M)", "Adjusted")
+tesla = tesla[c("Date", "Open", "High", 
+                      "Low", "Close", "Volume (M)", "Adjusted")]
+
+i1 <- descr(tesla, stats = c("min", "q1", "med", "mean", "q3", "max", "sd"), transpose = TRUE, headings = FALSE, order = "p")  
 i1
 
 ```
 
 <br>
 These values allow us to see the range of values that are present in the Tesla stocks over time. Notably, the range of the minimum and maximum stock values is quite large, likely due to trends over several years.
-Since this is a time-series dataset from the intial public offering, it is unlikely that outliers are present, since the value of the stock has changed drastically over several years. For the purposes of this investigation, the closed stock price (i.e. the value of the stock at the end of the day) will be used. The table below displays the trends of the closed stock prices from 2010-2017. 
+Since this is a time-series dataset from the intial public offering, it is unlikely that outliers are present, since the value of the stock has changed drastically over several years. 
+
+For the purposes of the forecasting investigation, the closed stock price (i.e. the value of the stock at the end of the day) will be used. The table below displays the trends of the closed stock prices from 2010-2019. 
 
 <br>
 **Closed Tesla Stock Price Statistics**
 
 ```{r echo = FALSE, results = 'asis', warnings = FALSE}
+
 i2 <- tesla %>% 
   select(c(Date,Close)) %>% 
   mutate(Year = year(Date)) %>% 
-  filter(year(Date)==2010 | year(Date)==2011 | year(Date)==2012 | year(Date)==2013 | year(Date)==2014 | year(Date)==2015 | year(Date)==2016 | year(Date)==2017) %>% 
   group_by(Year) %>% 
-  summarise(Min = min(Close), Max = max(Close), Average = round(mean(Close),2), `% Change per Fiscal Year` = round(((Close[which.max(Date)] - Close[which.min(Date)])/Close[which.min(Date)]*100),2))
+  summarise(Min = round(min(Close),2), Max = round(max(Close),2), Average = round(mean(Close),2), `% Change per Fiscal Year` = round(((Close[which.max(Date)] - Close[which.min(Date)])/Close[which.min(Date)]*100),2))
   
 customRed = "#ff7f7f"
   
@@ -137,12 +177,12 @@ hist(tesla$Close, col = "#69b3a2", main = " ", xlab = "Closing Price")
 
 ```
 
-Now that the closing stock prices have been visualized, as shown above, it is important to determine if autocorrelation is present within the data. Autocorrelation refers to the degree of similarity that is present between the data and a lagged version of the past data. In other words, this assessment determine if the data is dependent on its past.
+Now that the closing stock prices have been visualized, as shown above, it is important to determine if autocorrelation is present within the data. Autocorrelation refers to the degree of linear similarity that is present between the data and a lagged version of the past data. In other words, this assessment determine if the data is previous data influenced the current observations. Along with this, it is important to test if there is partial autocorrelation. From the visualizations above, it is not easily apparent if there are the data has any autocorrelation. The following tests will provide a concrete calcaultion and visualization for the presence of autocorrelation. 
 
 <br>
-
+Autocorrelation
 ```{r}
-
+  
 
 ```
 
@@ -157,17 +197,38 @@ Seasonality
 Stationary
 
 ```{r}
+# Augmented Dickey-Fuller Test (adf test). 
+# A p-Value of less than 0.05 in adf.test() indicates that it is stationary.
+adf.test(tesla$Close)
+
+```
+
+### Technical Indicators
+
+The ARIMA model requires additional technical indicators to be calculated to strengthen the available information. These indicators include the following: 
+
+* Moving Average Convergence Divergence (MACD) 
+* Relative Strength Index (RSI) 
+* Price Rate of Change
+* Stochastic Oscillator 
+* Weighted Moving Average 
+* Simple Moving Average
+
+```{r}
+
 
 
 ```
 
 ### Feature Selection
 
-Although there are 7 attributes in the dataset, the focus will be on the attributes "Date" and "Close", since the goal of this project is to forecast the closing stock price of a  univariate time series dataset.
+
 
 ### Modelling 
 
-**Naive Forecasting**
+**ARIMA model**
 
-**ARIMA model** 
+**K-Nearest Neighbours** 
+
+### Performance Evaluation
 
