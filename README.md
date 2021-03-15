@@ -1,6 +1,6 @@
 # Forecasting Tesla Stock Prices
 To view the full project and the generated outputs, click <a href="https://cassandraczobit.github.io/Tesla-Stock-Prices/.">here</a>. 
-To view the .Rmd file, click <a href="https://github.com/cassandraczobit/Tesla-Stock-Prices/blob/main/index.Rmd.">here</a>. 
+<br> To view the .Rmd file, click <a href="https://github.com/cassandraczobit/Tesla-Stock-Prices/blob/main/index.Rmd">here</a>. 
 
 This project features several stages in a typical data lifecycle:
 
