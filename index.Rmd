@@ -250,14 +250,14 @@ It is important to determine if autocorrelation is present within the data. Auto
 ```{r echo = FALSE}
 par(mfrow=c(1,2))
 acf(train.set$Close, main = "Series: Original Closing Price")
-acf(diff(log(train.set$Close)), main = "Series: Log Differenced Closing Price")
+acf(diff(log(train.set$Close)), main = "Series: Log Differenced Price")
 
 ```
 
 The above plot (right) shows that the autocorrelation falls to zero quickly, meaning that the data is now stationary. The autocorrelation is within the dashed blue line which indicates that there is no longer a lag that is correlated with the data series. The partical autocorrelation plot below confirms this conclusion.
 
 ```{r}
-pacf(diff(log(train.set$Close)))
+pacf(diff(log(train.set$Close)), main = " PACF Series: Log Differenced Price")
 
 ```
 
@@ -265,7 +265,7 @@ Since the log differenced closing price results in a stationary dataset, the val
 
 ```{r}
 train_diff <- train.set %>% 
-  select(Date, Open, High, Low, Close, Volume, Adjusted) %>% 
+  select(Date, Open, High, Low, Close, Adjusted) %>% 
   mutate(Logdiff = c(NA, diff(log(Close)))) %>% 
   na.omit() 
 
@@ -330,16 +330,28 @@ for (i in 1:nrow(train_diff)){
 
 **ARIMA model:**
 
-Prior to determining how accurate the ARIMA model is with the addition of technical indicators, a based model will be built from the log differenced closing prices. This model will provide a point of comparison for the second ARIMA model. 
+Prior to determining how accurate the ARIMA model is with the addition of technical indicators, a base model will be built from the log differenced closing prices. This model will provide a point of comparison for the second ARIMA model. 
+
+**Base Model**
 
 ```{r}
 set.seed(10)
 arima_model <- auto.arima(train_diff$Logdiff, ic = c("aicc", "aic", "bic"))
 summary(arima_model)
 checkresiduals(arima_model)
-#forecast1 <- forecast()
+forecast1 <- forecast(arima_model)
+accuracy(forecast1, test = test.set$Close)
 
-arima_model2 <- auto.arima(train_diff$Logdiff, ic = "aic", xreg = train_diff$ROC)
+```
+
+**Revised Model**
+
+```{r}
+arima_model2 <- auto.arima(train_diff$Logdiff, ic = c("aicc", "aic", "bic"), xreg = train_diff$ROC)
+summary(arima_model2)
+checkresiduals(arima_model2)
+forecast2 <- forecast(arima_model2, xreg = train_diff$ROC)
+accuracy(forecast2, test = test.set$Close)
 
 ```
 
@@ -360,7 +372,7 @@ confusionMatrix(predictions, test.set$Response)
 
 ### Feature Selection
 
-Feature selection will be used to find the best model for the classification algorithm. This process will determine which attribute(s) best predicts the response of the next day's market. The Arima model uses the Akaike information criterion (AIC) to best fit the model. Two other feature selection methods, a filter-based and wrapper-based technique are shown below.
+Feature selection will be used to find the best model for the classification algorithm. This process will determine which attribute(s) best predicts the response of the next day's market. The ARIMA model uses the Akaike information criterion (AIC) to best fit the model. Two other feature selection methods, a filter-based and wrapper-based technique are shown below.
 
 ```{r}
 # Filter-based Feature Selection Technique
