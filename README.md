@@ -1,5 +1,5 @@
 # Forecasting Tesla Stock Prices
-To view the full projectand outputs, click <a href="https://cassandraczobit.github.io/Tesla-Stock-Prices/.">here</a>. 
+To view the full project and outputs, click <a href="https://cassandraczobit.github.io/Tesla-Stock-Prices/.">here</a>. 
 
 This project features several stages in a typical data lifecycle:
 
