@@ -8,7 +8,7 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-This document explores Tesla's stock prices from its initial public offering on June 29, 2010, to March 17, 2017. Tesla’s share prices have experienced staggering increases over several years and machine learning algorithms could unveil trends of seasonality or autocorrelated variables. Predictive analysis, and within it, machine learning, can greatly influence investors from the uncertainty of the market. This time-series data aims to address the ability of machine learning models to use the time-series data to predict Tesla’s future market behavior. This investigation will utilize machine learning techniques on the historical prices to evaluate the direction of market movement, as well as forecast the value of the stock in the future. The research questions are as follows:
+This document explores Tesla's stock prices from its initial public offering on June 29, 2010, to December 31, 2019. Tesla’s share prices have experienced staggering increases over several years and machine learning algorithms could unveil trends of seasonality or autocorrelated variables. Predictive analysis, and within it, machine learning, can greatly influence investors from the uncertainty of the market. This time-series data aims to address the ability of machine learning models to use the time-series data to predict Tesla’s future market behavior. This investigation will utilize machine learning techniques on the historical prices to evaluate the direction of market movement, as well as forecast the value of the stock in the future. The research questions are as follows:
 
 1.	How accurate is the ARIMA model with the addition of technical indicators from historical data?
 2.	Which attribute(s) best predicts the direction of the stock market movement?  
@@ -22,17 +22,22 @@ library(quantmod)
 library(dplyr)
 library(lubridate)
 library(summarytools)
+library(dvmisc)
 library(corrplot)
 library(tseries)
+library(forecast)
 library(ggplot2)
 library(plotly)
+library(caret)
 library(formattable)
 library(dygraphs)
 library(hrbrthemes)
+library(TSstudio)
+library(FSelector)
 
 stock_list <- "TSLA"
-start_date <- 2010-06-29
-end_date <- Sys.Date()
+start_date <- as.Date("2010-06-29")
+end_date <- as.Date("2020-01-01")
 tesla <- NULL
 
 for (i in seq(length(stock_list))){
@@ -49,6 +54,8 @@ for (i in seq(length(stock_list))){
 }
 
 ```
+
+In considering the COVID-19 pandemic, the Tesla dataset was only selected to include the years from 2010-2019. Due to the uncertainty surrounding the economy in 2020, I believe there will be white noise present in the 2020 data.
 
 ### Data Preparation and Exploration 
 
@@ -78,20 +85,10 @@ sum(is.na(tesla))
 ```
 
 There are no missing values.
-In considering the COVID-19 pandemic, the Tesla dataset will be filtered to include the years from 2010-2019. Due to the uncertainty surrounding the economy in 2020, I believe there will be white noise present in the 2020 data.
-
-```{r}
-tesla <- tesla %>% 
-  mutate(Year = year(Date)) %>% 
-  group_by(Year) %>% 
-  filter(Year != 2020 & Year != 2021) 
-
-tesla <- tesla[1:7]
-```
 
 Next, a correlation plot will determine whether the attributes are correlated and to what degree. 
 
-```{r}
+```{r echo = FALSE}
 x <- cor(tesla[2:7])
 x
 corrplot(x, type = "upper", order = "hclust")
@@ -103,7 +100,7 @@ To understand the attributes further, the measures of central tendency will be r
 <br>
 **Descriptive Statistics of Tesla Stock**
 
-```{r echo = FALSE, results = 'asis', warnings = FALSE, message = FALSE}
+```{r echo = FALSE, results = 'asis', warning = FALSE, message = FALSE}
 
 tesla$Volume <- (tesla$Volume)/1000000
 colnames(tesla) = c("Date", "Open", "High", 
@@ -125,7 +122,7 @@ For the purposes of the forecasting investigation, the closed stock price (i.e. 
 <br>
 **Closed Tesla Stock Price Statistics**
 
-```{r echo = FALSE, results = 'asis', warnings = FALSE}
+```{r echo = FALSE, results = 'asis', warning = FALSE}
 
 i2 <- tesla %>% 
   select(c(Date,Close)) %>% 
@@ -145,6 +142,37 @@ formattable(i2, align =c("l","c","c","c", "r"), list(`% Change per Fiscal Year` 
 ```
 
 <br>
+From this point, the data will be split into training and test sets. However, prior to splitting the data, a response variable to track the trends in the market must be calculated. In the case of reviewing the trends of the stock market, the stock's return will be categorized into one of five classes. These classes will represent the quartiles of the daily returns. 
+
+Further analysis will be conducted on the training set.  
+
+```{r}
+# Generating the daily return
+for (i in 2:nrow(tesla)){
+  tesla$Return[i] <- 
+    (tesla$Close[i] - tesla$Close[i-1])/tesla$Close[i-1] 
+}
+
+# Assigning a response variable
+normalize <- function(x){
+  return ((x - min(x)) / (max(x) - min(x)))
+}
+
+tesla <- na.omit(tesla)
+tesla$Return <- normalize(tesla[,8]) 
+tesla$Response <- quant_groups(tesla$Return, groups = 5)
+summary(tesla$Response)
+
+# Setting training and test sets
+train.set <- tesla %>%
+  filter(Date >= as.Date("2010/06/30") & Date <= as.Date("2016/12/31"))
+
+test.set <- tesla %>%
+  filter(Date >= as.Date("2017/01/01") & Date <= as.Date("2019/12/31"))
+
+```
+
+<br>
 Next, visualizations will be used to observe trends in the data. In order to ensure that the most accurate forecasts are obtained from the analysis, there are several aspects to consider when working with a time series dataset. The following data exploration will determine:
 
 * Is there a pattern of seasonality (periodic fluctuations)?
@@ -156,7 +184,7 @@ The first two visualizations will display the closing price of Tesla stock per d
 <br>
 
 ```{r echo = FALSE}
-stocks <- tesla %>%
+stocks <- train.set %>%
   ggplot(aes(x=Date, y=Close)) +
   geom_area(fill="#69b3a2", alpha=0.5) +
   geom_line(color="#69b3a2") +
@@ -173,33 +201,95 @@ ggplotly(stocks)
 **Histogram of Closing Price**
 
 ```{r echo = FALSE}
-hist(tesla$Close, col = "#69b3a2", main = " ", xlab = "Closing Price")
+hist(train.set$Close, col = "#69b3a2", main = " ", xlab = "Closing Price")
 
 ```
 
-Now that the closing stock prices have been visualized, as shown above, it is important to determine if autocorrelation is present within the data. Autocorrelation refers to the degree of linear similarity that is present between the data and a lagged version of the past data. In other words, this assessment determine if the data is previous data influenced the current observations. Along with this, it is important to test if there is partial autocorrelation. From the visualizations above, it is not easily apparent if there are the data has any autocorrelation. The following tests will provide a concrete calcaultion and visualization for the presence of autocorrelation. 
+Now that the closing stock prices have been visualized, it is clear that the data is not normally distributed. Further tesing for stationarity is shown below.
 
 <br>
-Autocorrelation
+**Testing for Stationary:**
+
+The Augmented Dickey-Fuller Test is a statistical test that determines if the data is stationary. A p-value of less than 0.05 is indicative of stationary data. With stationary data there is a constant mean and constant variance.
+
 ```{r}
-  
+adf.test(train.set$Close)
 
 ```
 
-Seasonality
+Based on the p-value of 0.5711, the Tesla time-series is non-stationary. Differencing will be used to adjust for this discovery. The inbuilt function of `ndiffs` will calculate the number of differences required to make the time-series data stationary. Differencing can be completed using the `diff` function. The visualizations below will be used to determine which transformation is best suited for the data. The differenced data will undergo the Augmented Dickey-Fuller Test again.
 
-```{r}
-
-
+```{r echo=TRUE, warning=FALSE, message=FALSE}
+ndiffs(train.set$Close, test = "adf")
 
 ```
 
-Stationary
+```{r echo = FALSE}
+par(mfrow=c(1,2))
+plot(train.set$Close, type = "l", main = "Original Data")
+plot(diff(train.set$Close), type = "l", main = "First Degree Differencing")
+plot(diff(log(train.set$Close)), type = "l", main = "Log-transformed Differencing")
+plot(diff(sqrt(train.set$Close)), type = "l", main = "Squared Root Transformed")
+
+```
+
+Based on the plots above, the log differenced data appears to be best performing metric to stabilize the variance of the time series.
 
 ```{r}
-# Augmented Dickey-Fuller Test (adf test). 
-# A p-Value of less than 0.05 in adf.test() indicates that it is stationary.
-adf.test(tesla$Close)
+adf.test(diff(log(train.set$Close)))
+
+```
+
+Based on the differencing of 1 lag and a logarithmic transformation, the time series is now a stationary process.
+
+<br>
+**Autocorrelation:**
+
+It is important to determine if autocorrelation is present within the data. Autocorrelation refers to the degree of linear similarity that is present between the data and a lagged version of the past data. In other words, this assessment determine if the data is previous data influenced the current observations. The following tests will compare the original and stationary data for the presence of autocorrelation. 
+
+```{r echo = FALSE}
+par(mfrow=c(1,2))
+acf(train.set$Close, main = "Series: Original Closing Price")
+acf(diff(log(train.set$Close)), main = "Series: Log Differenced Closing Price")
+
+```
+
+The above plot (right) shows that the autocorrelation falls to zero quickly, meaning that the data is now stationary. The autocorrelation is within the dashed blue line which indicates that there is no longer a lag that is correlated with the data series. The partical autocorrelation plot below confirms this conclusion.
+
+```{r}
+pacf(diff(log(train.set$Close)))
+
+```
+
+Since the log differenced closing price results in a stationary dataset, the values will be saved to a new variable to use in the modelling. 
+
+```{r}
+train_diff <- train.set %>% 
+  select(Date, Open, High, Low, Close, Volume, Adjusted) %>% 
+  mutate(Logdiff = c(NA, diff(log(Close)))) %>% 
+  na.omit() 
+
+```
+
+<br>
+**Presence of Seasonality:**
+
+```{r}
+# 253 is the average number of trading days 
+tesla_ts <- xts(train_diff$Logdiff, train_diff$Date)
+ts_info(tesla_ts)
+temp <- ts(tesla_ts,start=c(2010,1),freq=253)
+
+ts_decompose(temp)
+
+```
+
+<br>
+**Normalization:**
+
+```{r}
+train_norm <- normalize(train.set[,c(2:5)])
+train_norm$Response <- train.set$Response
 
 ```
 
@@ -210,25 +300,82 @@ The ARIMA model requires additional technical indicators to be calculated to str
 * Moving Average Convergence Divergence (MACD) 
 * Relative Strength Index (RSI) 
 * Price Rate of Change
-* Stochastic Oscillator 
-* Weighted Moving Average 
 * Simple Moving Average
+* Stochastic Oscillator 
+* William's %R 
+
+```{r}
+for (i in 1:nrow(train_diff)){
+  #MACD
+  train_diff$MACD <- MACD(Cl(train_diff), nFast=12, nSlow=26, nSig=9)
+  #RSI
+  train_diff$RSI <- RSI(Cl(train_diff), n=14)
+  #Price Rate of Change
+  train_diff$ROC <- ROC(Cl(train_diff),n=14) * 100
+  #Simple Moving Average
+  train_diff$SMA <- SMA(Cl(train_diff),n=14)
+  
+  hlac <- data.frame(x=Hi(train_diff), y=Lo(train_diff), z=Cl(train_diff))
+  
+  #Stochastic Oscillator
+  train_diff$STO <- stoch(hlac, nFastK = 14) *100
+  #William's %R
+  train_diff$WPR <- WPR(hlac, n=14) * (-100)
+
+}
+
+```
+
+### Modelling 
+
+**ARIMA model:**
+
+Prior to determining how accurate the ARIMA model is with the addition of technical indicators, a based model will be built from the log differenced closing prices. This model will provide a point of comparison for the second ARIMA model. 
+
+```{r}
+set.seed(10)
+arima_model <- auto.arima(train_diff$Logdiff, ic = c("aicc", "aic", "bic"))
+summary(arima_model)
+checkresiduals(arima_model)
+#forecast1 <- forecast()
+
+arima_model2 <- auto.arima(train_diff$Logdiff, ic = "aic", xreg = train_diff$ROC)
+
+```
+
+**K-Nearest Neighbours:** 
+
+```{r}
+set.seed(1)
+knn_model <- train(Response ~ High + Low + Open + Close, 
+                   data = train_norm, 
+                   method = "knn")
+                   
+                   
+
+predictions <- predict(knn_model, newdata = test.set)
+confusionMatrix(predictions, test.set$Response)
+
+```
+
+### Feature Selection
+
+Feature selection will be used to find the best model for the classification algorithm. This process will determine which attribute(s) best predicts the response of the next day's market. The Arima model uses the Akaike information criterion (AIC) to best fit the model. Two other feature selection methods, a filter-based and wrapper-based technique are shown below.
+
+```{r}
+# Filter-based Feature Selection Technique
+# Correlation Based
+cfs(Response ∼ High + Low + Open + Close, data = train_norm)
+
+# Wrapper-based Feature Selection Technique
+#rfe(x = train_norm[, 1:4], y = train_norm[, 5], rfeControl = control, metric = "ROC")
+
+```
+
+### Performance Evaluation
 
 ```{r}
 
 
 
 ```
-
-### Feature Selection
-
-
-
-### Modelling 
-
-**ARIMA model**
-
-**K-Nearest Neighbours** 
-
-### Performance Evaluation
-
