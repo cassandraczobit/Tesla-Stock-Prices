@@ -15,4 +15,4 @@ This project features several stages in a typical data lifecycle:
 * [Feature Selection](https://cassandraczobit.github.io/Tesla-Stock-Prices/#feature-selection)
 * [Performance Evaluation](https://cassandraczobit.github.io/Tesla-Stock-Prices/#performance-evaluation)
 
-The machine learning algorithms for this project are the ARIMA model and KNN for classification.
+Two machine learning algorithms will be used for this project, ARIMA for forecasting the future value of the stock and K-Nearest Neighbours (KNN) for classifying the trends in the market.
