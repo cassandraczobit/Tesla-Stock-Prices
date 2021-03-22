@@ -158,8 +158,13 @@ normalize <- function(x){
   return ((x - min(x)) / (max(x) - min(x)))
 }
 
+shift <- function(x, n){
+  c(x[-(seq(n))], rep(NA, n))
+}
+
+tesla$ReturnNext <- shift(tesla$Return, 1)
 tesla <- na.omit(tesla)
-tesla$Return <- normalize(tesla[,8]) 
+tesla$Response <- normalize(tesla[,8]) 
 tesla$Response <- quant_groups(tesla$Return, groups = 5)
 summary(tesla$Response)
 
@@ -289,6 +294,7 @@ ts_decompose(temp)
 
 ```{r}
 train_norm <- normalize(train.set[,c(2:5)])
+train_norm$Return <- train.set$Return
 train_norm$Response <- train.set$Response
 
 ```
@@ -335,36 +341,81 @@ Prior to determining how accurate the ARIMA model is with the addition of techni
 **Base Model**
 
 ```{r}
-set.seed(10)
+set.seed(1)
 arima_model <- auto.arima(train_diff$Logdiff, ic = c("aicc", "aic", "bic"))
 summary(arima_model)
 checkresiduals(arima_model)
-forecast1 <- forecast(arima_model)
+forecast1 <- forecast(arima_model, h = 30)
 accuracy(forecast1, test = test.set$Close)
+
+```
+
+The forecast of future stock prices is visualized below.
+<br>
+
+```{r echo = FALSE}
+data <- forecast1$x # raw data
+lower <- forecast1$lower[,2] # confidence intervals lower bound
+upper <- forecast1$upper[,2] # confidence intervals upper bound
+pforecast <- forecast1$mean # th element mean
+mydata <- cbind(data, lower, upper, pforecast) 
+
+dygraph(mydata, main = "Predicted Log Stock Price") %>%       
+  dyRangeSelector() %>%                                                
+  dySeries(name = "data", label = "Stock Price") %>%                 
+  dySeries(c("lower","pforecast","upper"), label = "Stock Forecast") %>%             
+  dyLegend(show = "always", hideOnMouseOut = FALSE) %>%             
+  dyAxis("y", label = "Log Stock Price ($USD)") %>%                 
+  dyHighlight(highlightCircleSize = 5,                          
+              highlightSeriesOpts = list(strokeWidth = 2)) %>%
+  dyOptions(colors = RColorBrewer::brewer.pal(3, "Set2"))
+
 
 ```
 
 **Revised Model**
 
 ```{r}
+set.seed(10)
 arima_model2 <- auto.arima(train_diff$Logdiff, ic = c("aicc", "aic", "bic"), xreg = train_diff$ROC)
 summary(arima_model2)
 checkresiduals(arima_model2)
-forecast2 <- forecast(arima_model2, xreg = train_diff$ROC)
+forecast2 <- forecast(arima_model2, xreg = train_diff$ROC, h=30)
 accuracy(forecast2, test = test.set$Close)
+
+```
+
+The revised model and the resulting forecasts can be viewed below.
+<br>
+
+```{r echo = FALSE}
+data2 <- forecast2$x # raw data
+lower2 <- forecast2$lower[,2] # confidence intervals lower bound
+upper2 <- forecast2$upper[,2] # confidence intervals upper bound
+pforecast2 <- forecast2$mean # th element mean
+mydata2 <- cbind(data2, lower2, upper2, pforecast2) 
+
+dygraph(mydata2, main = "Predicted Log Stock Price") %>%       
+  dyRangeSelector() %>%                                                
+  dySeries(name = "data2", label = "Stock Price") %>%                 
+  dySeries(c("lower2","pforecast2","upper2"), label = "Stock Forecast") %>%             
+  dyLegend(show = "always", hideOnMouseOut = FALSE) %>%             
+  dyAxis("y2", label = "Log Stock Price ($USD)") %>%                 
+  dyHighlight(highlightCircleSize = 5,                          
+              highlightSeriesOpts = list(strokeWidth = 2)) %>%
+  dyOptions(colors = RColorBrewer::brewer.pal(3, "Set2"))
+
 
 ```
 
 **K-Nearest Neighbours:** 
 
 ```{r}
-set.seed(1)
+set.seed(100)
 knn_model <- train(Response ~ High + Low + Open + Close, 
                    data = train_norm, 
                    method = "knn")
                    
-                   
-
 predictions <- predict(knn_model, newdata = test.set)
 confusionMatrix(predictions, test.set$Response)
 
@@ -380,14 +431,23 @@ Feature selection will be used to find the best model for the classification alg
 cfs(Response ∼ High + Low + Open + Close, data = train_norm)
 
 # Wrapper-based Feature Selection Technique
-#rfe(x = train_norm[, 1:4], y = train_norm[, 5], rfeControl = control, metric = "ROC")
+#rfe(x = train_norm[, c(1:4)], y = train_norm[, 5], rfeControl = "boot", metric = "ROC")
+
 
 ```
 
 ### Performance Evaluation
 
-```{r}
+From the feature selection stage, the best fitting model will now be built and compared to the original model.
 
+```{r}
+set.seed(1000)
+knn_model2 <- train(Response ~ High, 
+                   data = train_norm, 
+                   method = "knn")
+                   
+predictions2 <- predict(knn_model2, newdata = test.set)
+confusionMatrix(predictions2, test.set$Response)
 
 
 ```
