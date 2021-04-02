@@ -59,6 +59,8 @@ In considering the COVID-19 pandemic, the Tesla dataset was only selected to inc
 
 The following visualization provides insight into key historical events that have impacted the price of Tesla's stock.
 
+<br>
+
 ```{r echo = FALSE}
 dygraph(OHLC(TSLA), main = "History of Tesla's Stock Prices", ylab = "Stock Price ($USD)", xlab = "Year") %>% 
   dyEvent("2013-05-01", "First quarterly profit", labelLoc="bottom") %>% 
