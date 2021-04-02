@@ -57,6 +57,23 @@ for (i in seq(length(stock_list))){
 
 In considering the COVID-19 pandemic, the Tesla dataset was only selected to include the years from 2010-2019. Due to the uncertainty surrounding the economy in 2020, I believe there will be white noise present in the 2020 data.
 
+The following visualization provides insight into key historical events that have impacted the price of Tesla's stock.
+
+```{r echo = FALSE}
+dygraph(OHLC(TSLA), main = "History of Tesla's Stock Prices", ylab = "Stock Price ($USD)", xlab = "Year") %>% 
+  dyEvent("2013-05-01", "First quarterly profit", labelLoc="bottom") %>% 
+  dyEvent("2015-09-01", "Model X released", labelLoc="bottom") %>% 
+  dyEvent("2016-01-01", "Inability to deliver 4000 Model X's", labelLoc="bottom") %>%
+  dyEvent("2017-07-07", "Model 3 released", labelLoc="bottom") %>% 
+  dyEvent("2018-06-01", "Increased production of Model 3", labelLoc="bottom") %>% 
+  dyAxis("x", drawGrid = FALSE) %>%
+  dyAxis("x", axisLabelFormatter="function(d) { return d.getFullYear() }") %>%
+  dyAxis("x", ticker="function(a, b, pixels, opts, dygraph, vals) {
+                            return Dygraph.getDateAxis(a, b, Dygraph.ANNUAL, opts, dygraph)}")
+
+```
+
+
 ### Data Preparation and Exploration 
 
 The data analysis stage first consists of cleaning, and inspecting the data for inconsistencies. Following these steps, the data may undergo transformations and modelling as required. As part of the data preparation stage, the following steps will be taken:
@@ -142,11 +159,20 @@ formattable(i2, align =c("l","c","c","c", "r"), list(`% Change per Fiscal Year` 
 ```
 
 <br>
-From this point, the data will be split into training and test sets. However, prior to splitting the data, a response variable to track the trends in the market must be calculated. In the case of reviewing the trends of the stock market, the stock's return will be categorized into one of five classes. These classes will represent the quartiles of the daily returns. 
+From this point, the data will be split into training and test sets. There will be two training and test sets- one for the ARIMA model and one for KNN. KNN requires a response variable to be calculated prior to splitting the data, to track the trends in the market. In the case of reviewing the trends of the stock market, the stock's return will be categorized into one of five classes. These classes will represent the quartiles of the daily returns. 
 
 Further analysis will be conducted on the training set.  
 
 ```{r}
+# Setting training and test sets for ARIMA
+train.set <- tesla %>%
+  filter(Date >= as.Date("2010/06/29") & Date <= as.Date("2016/12/31"))
+
+test.set <- tesla %>%
+  filter(Date >= as.Date("2017/01/01") & Date <= as.Date("2019/12/31"))
+
+
+#KNN
 # Generating the daily return
 for (i in 2:nrow(tesla)){
   tesla$Return[i] <- 
@@ -168,12 +194,13 @@ tesla$Response <- normalize(tesla[,8])
 tesla$Response <- quant_groups(tesla$Return, groups = 5)
 summary(tesla$Response)
 
-# Setting training and test sets
-train.set <- tesla %>%
+# Setting training and test sets for KNN
+train.set.knn <- tesla %>%
   filter(Date >= as.Date("2010/06/30") & Date <= as.Date("2016/12/31"))
 
-test.set <- tesla %>%
+test.set.knn <- tesla %>%
   filter(Date >= as.Date("2017/01/01") & Date <= as.Date("2019/12/31"))
+
 
 ```
 
@@ -194,7 +221,7 @@ stocks <- train.set %>%
   geom_area(fill="#69b3a2", alpha=0.5) +
   geom_line(color="#69b3a2") +
   ylab("Stock Price ($USD)") +
-  xlab("Dates") +
+  xlab("Date") +
   ggtitle("Closing Price of Tesla Stock") +
   scale_x_date(date_labels = "%Y", date_breaks = "1 years")
 
@@ -279,23 +306,26 @@ train_diff <- train.set %>%
 <br>
 **Presence of Seasonality:**
 
-```{r}
+Multiplicative decomposition is common with economic time series data. However, a log differenced transformation was applied to the dataset. This transformation stabilized the variation in the series, making it is possible to use an additive decomposition. 
+
+```{r echo = FALSE}
 # 253 is the average number of trading days 
 tesla_ts <- xts(train_diff$Logdiff, train_diff$Date)
 ts_info(tesla_ts)
-temp <- ts(tesla_ts,start=c(2010,1),freq=253)
-
-ts_decompose(temp)
+ts_tesla <- ts(tesla_ts,start=decimal_date(as.Date("2010-06-30")),freq=253)
+plot(decompose(ts_tesla))
 
 ```
+
+There does not appear to be a seasonal trend with this dataset.
 
 <br>
 **Normalization:**
 
 ```{r}
-train_norm <- normalize(train.set[,c(2:5)])
-train_norm$Return <- train.set$Return
-train_norm$Response <- train.set$Response
+train_norm <- normalize(train.set.knn[,c(2:5)])
+train_norm$Return <- train.set.knn$Return
+train_norm$Response <- train.set.knn$Response
 
 ```
 
@@ -336,28 +366,37 @@ for (i in 1:nrow(train_diff)){
 
 **ARIMA model:**
 
-Prior to determining how accurate the ARIMA model is with the addition of technical indicators, a base model will be built from the log differenced closing prices. This model will provide a point of comparison for the second ARIMA model. 
+Prior to determining how accurate the ARIMA model is with the addition of technical indicators, a base model will be built from the log differenced closing prices. The base model will be constructed with two information criterion methods, AIC and BIC, and the best method will be selected for more analysis. This model will provide a point of comparison for the second ARIMA model. 
 
 **Base Model**
 
 ```{r}
+# AIC
 set.seed(1)
-arima_model <- auto.arima(train_diff$Logdiff, ic = c("aicc", "aic", "bic"))
+arima_model <- auto.arima(train_diff$Logdiff, ic = "aic")
 summary(arima_model)
 checkresiduals(arima_model)
 forecast1 <- forecast(arima_model, h = 30)
-accuracy(forecast1, test = test.set$Close)
+accuracy(forecast1, test=test.set$Close)
+
+# BIC
+set.seed(2)
+arima_modelb <- auto.arima(train_diff$Logdiff, ic = "bic")
+summary(arima_modelb)
+checkresiduals(arima_modelb)
+forecast1b <- forecast(arima_modelb, h = 30)
+accuracy(forecast1b, test = test.set$Close)
 
 ```
 
-The forecast of future stock prices is visualized below.
+The AIC method found a better fit for the model. The forecast of future stock prices is visualized below.
 <br>
 
 ```{r echo = FALSE}
 data <- forecast1$x # raw data
 lower <- forecast1$lower[,2] # confidence intervals lower bound
 upper <- forecast1$upper[,2] # confidence intervals upper bound
-pforecast <- forecast1$mean # th element mean
+pforecast <- forecast1$mean # element mean
 mydata <- cbind(data, lower, upper, pforecast) 
 
 dygraph(mydata, main = "Predicted Log Stock Price") %>%       
@@ -376,8 +415,8 @@ dygraph(mydata, main = "Predicted Log Stock Price") %>%
 **Revised Model**
 
 ```{r}
-set.seed(10)
-arima_model2 <- auto.arima(train_diff$Logdiff, ic = c("aicc", "aic", "bic"), xreg = train_diff$ROC)
+set.seed(3)
+arima_model2 <- auto.arima(train_diff$Logdiff, ic = "aic", xreg = train_diff$ROC)
 summary(arima_model2)
 checkresiduals(arima_model2)
 forecast2 <- forecast(arima_model2, xreg = train_diff$ROC, h=30)
@@ -416,8 +455,10 @@ knn_model <- train(Response ~ High + Low + Open + Close,
                    data = train_norm, 
                    method = "knn")
                    
-predictions <- predict(knn_model, newdata = test.set)
-confusionMatrix(predictions, test.set$Response)
+predictions <- predict(knn_model, newdata = test.set.knn)
+confusionMatrix(predictions, test.set.knn$Response, mode = "everything")
+
+knn_model
 
 ```
 
@@ -431,8 +472,8 @@ Feature selection will be used to find the best model for the classification alg
 cfs(Response ∼ High + Low + Open + Close, data = train_norm)
 
 # Wrapper-based Feature Selection Technique
-#rfe(x = train_norm[, c(1:4)], y = train_norm[, 5], rfeControl = "boot", metric = "ROC")
-
+full.model = glm(Response∼High + Low + Open + Close, data = train_norm, family = binomial())
+step(full.model, data = train_norm, direction = "backward")
 
 ```
 
@@ -445,9 +486,38 @@ set.seed(1000)
 knn_model2 <- train(Response ~ High, 
                    data = train_norm, 
                    method = "knn")
-                   
-predictions2 <- predict(knn_model2, newdata = test.set)
-confusionMatrix(predictions2, test.set$Response)
+
+knn_model2                   
+predictions2 <- predict(knn_model2, test.set.knn)
+confusionMatrix(predictions2, test.set.knn$Response, mode = "everything")
 
 
+set.seed(1001)
+knn_model3 <- train(Response ~ Low, 
+                   data = train_norm, 
+                   method = "knn")
+
+knn_model3                   
+predictions3 <- predict(knn_model3, test.set.knn)
+confusionMatrix(predictions3, test.set.knn$Response, mode = "everything")
+```
+
+Future work can also evaluate the use of training control measures for KNN. For the time series data, it is not possible to use resampling techniques such as cross validation. Instead, a sliding window can be created. 
+
+```{r}
+set.seed(100)
+control <- trainControl(method = "timeslice",
+                              initialWindow = 40,
+                              horizon = 20,
+                              fixedWindow = TRUE)
+
+knn_model4 <- train(Response ~ High + Low + Open + Close, 
+                   data = train_norm, 
+                   method = "knn",
+                   trControl = control)
+
+predictions2 <- predict(knn_model4, newdata = test.set.knn)
+confusionMatrix(predictions2, test.set.knn$Response, mode = "everything")
+
+knn_model4
 ```
